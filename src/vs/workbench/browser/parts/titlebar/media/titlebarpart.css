@@ -465,3 +465,8 @@
 	border-radius: 16px;
 	text-align: center;
 }
+
+.monaco-workbench .part.titlebar .custom-hello-button {
+    padding: 0 8px;
+    cursor: pointer;
+}
