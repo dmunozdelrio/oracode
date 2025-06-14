@@ -53,6 +53,7 @@ import { createInstantHoverDelegate } from '../../../../base/browser/ui/hover/ho
 import { IBaseActionViewItemOptions } from '../../../../base/browser/ui/actionbar/actionViewItems.js';
 import { IHoverDelegate } from '../../../../base/browser/ui/hover/hoverDelegate.js';
 import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
 import { safeIntl } from '../../../../base/common/date.js';
 import { IsCompactTitleBarContext, TitleBarVisibleContext } from '../../../common/contextkeys.js';
 
@@ -132,21 +133,30 @@ export class BrowserTitleService extends MultiWindowParts<BrowserTitlebarPart> i
 		}));
 	}
 
-	private registerAPICommands(): void {
-		this._register(CommandsRegistry.registerCommand({
-			id: 'registerWindowTitleVariable',
-			handler: (accessor: ServicesAccessor, name: string, contextKey: string) => {
-				this.registerVariables([{ name, contextKey }]);
-			},
-			metadata: {
-				description: 'Registers a new title variable',
-				args: [
-					{ name: 'name', schema: { type: 'string' }, description: 'The name of the variable to register' },
-					{ name: 'contextKey', schema: { type: 'string' }, description: 'The context key to use for the value of the variable' }
-				]
-			}
-		}));
-	}
+        private registerAPICommands(): void {
+                this._register(CommandsRegistry.registerCommand({
+                        id: 'registerWindowTitleVariable',
+                        handler: (accessor: ServicesAccessor, name: string, contextKey: string) => {
+                                this.registerVariables([{ name, contextKey }]);
+                        },
+                        metadata: {
+                                description: 'Registers a new title variable',
+                                args: [
+                                        { name: 'name', schema: { type: 'string' }, description: 'The name of the variable to register' },
+                                        { name: 'contextKey', schema: { type: 'string' }, description: 'The context key to use for the value of the variable' }
+                                ]
+                        }
+                }));
+
+                const commandHandlers = {
+                        'forms.compile': () => alert('Compile!'),
+                        'forms.runForm': () => alert('Run!'),
+                        'forms.report': () => alert('Report!')
+                };
+                for (const [id, handler] of Object.entries(commandHandlers)) {
+                        this._register(CommandsRegistry.registerCommand({ id, handler }));
+                }
+        }
 
 	//#region Auxiliary Titlebar Parts
 
@@ -289,7 +299,8 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 
 	private readonly isCompactContextKey: IContextKey<boolean>;
 
-	private readonly windowTitle: WindowTitle;
+        private readonly windowTitle: WindowTitle;
+        private readonly commandService: ICommandService;
 
 	constructor(
 		id: string,
@@ -305,9 +316,10 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		@IContextKeyService protected readonly contextKeyService: IContextKeyService,
 		@IHostService private readonly hostService: IHostService,
 		@IEditorService private readonly editorService: IEditorService,
-		@IMenuService private readonly menuService: IMenuService,
-		@IKeybindingService private readonly keybindingService: IKeybindingService
-	) {
+                @IMenuService private readonly menuService: IMenuService,
+                @IKeybindingService private readonly keybindingService: IKeybindingService,
+                @ICommandService private readonly commandService: ICommandService
+        ) {
 		super(id, { hasTitle: false }, themeService, storageService, layoutService);
 
 		this.isAuxiliary = targetWindow.vscodeWindowId !== mainWindow.vscodeWindowId;
@@ -477,11 +489,24 @@ export class BrowserTitlebarPart extends Part implements ITitlebarPart {
 		this.createTitle();
 
 		// Create Toolbar Actions
-		if (hasCustomTitlebar(this.configurationService, this.titleBarStyle)) {
-			this.actionToolBarElement = append(this.rightContent, $('div.action-toolbar-container'));
-			this.createActionToolBar();
-			this.createActionToolBarMenus();
-		}
+                if (hasCustomTitlebar(this.configurationService, this.titleBarStyle)) {
+                        this.actionToolBarElement = append(this.rightContent, $('div.action-toolbar-container'));
+                        this.createActionToolBar();
+                        this.createActionToolBarMenus();
+
+                        const buttons = [
+                                { id: 'forms.compile', label: 'Compile' },
+                                { id: 'forms.runForm', label: 'Run' },
+                                { id: 'forms.report', label: 'Report' }
+                        ];
+                        for (const btnInfo of buttons) {
+                                const btn = append(this.rightContent, $('div.custom-hello-button.action-item'));
+                                btn.textContent = btnInfo.label;
+                                this._register(addDisposableListener(btn, EventType.CLICK, () => {
+                                        this.commandService.executeCommand(btnInfo.id);
+                                }));
+                        }
+                }
 
 		// Window Controls Container
 		if (!hasNativeTitlebar(this.configurationService, this.titleBarStyle)) {
@@ -904,11 +929,12 @@ export class MainBrowserTitlebarPart extends BrowserTitlebarPart {
 		@IHostService hostService: IHostService,
 		@IEditorGroupsService editorGroupService: IEditorGroupsService,
 		@IEditorService editorService: IEditorService,
-		@IMenuService menuService: IMenuService,
-		@IKeybindingService keybindingService: IKeybindingService,
-	) {
-		super(Parts.TITLEBAR_PART, mainWindow, editorGroupService.mainPart, contextMenuService, configurationService, environmentService, instantiationService, themeService, storageService, layoutService, contextKeyService, hostService, editorService, menuService, keybindingService);
-	}
+                @IMenuService menuService: IMenuService,
+                @IKeybindingService keybindingService: IKeybindingService,
+                @ICommandService commandService: ICommandService,
+        ) {
+                super(Parts.TITLEBAR_PART, mainWindow, editorGroupService.mainPart, contextMenuService, configurationService, environmentService, instantiationService, themeService, storageService, layoutService, contextKeyService, hostService, editorService, menuService, keybindingService, commandService);
+        }
 }
 
 export interface IAuxiliaryTitlebarPart extends ITitlebarPart, IView {
@@ -939,12 +965,13 @@ export class AuxiliaryBrowserTitlebarPart extends BrowserTitlebarPart implements
 		@IHostService hostService: IHostService,
 		@IEditorGroupsService editorGroupService: IEditorGroupsService,
 		@IEditorService editorService: IEditorService,
-		@IMenuService menuService: IMenuService,
-		@IKeybindingService keybindingService: IKeybindingService,
-	) {
-		const id = AuxiliaryBrowserTitlebarPart.COUNTER++;
-		super(`workbench.parts.auxiliaryTitle.${id}`, getWindow(container), editorGroupsContainer, contextMenuService, configurationService, environmentService, instantiationService, themeService, storageService, layoutService, contextKeyService, hostService, editorService, menuService, keybindingService);
-	}
+                @IMenuService menuService: IMenuService,
+                @IKeybindingService keybindingService: IKeybindingService,
+                @ICommandService commandService: ICommandService,
+        ) {
+                const id = AuxiliaryBrowserTitlebarPart.COUNTER++;
+                super(`workbench.parts.auxiliaryTitle.${id}`, getWindow(container), editorGroupsContainer, contextMenuService, configurationService, environmentService, instantiationService, themeService, storageService, layoutService, contextKeyService, hostService, editorService, menuService, keybindingService, commandService);
+        }
 
 	override get preventZoom(): boolean {
 
